@@ -35,21 +35,21 @@ MIHOMO_VER:=v1.19.9
 QLOAD_VER:=v1.0.0
 ZIVPN_VER:=udp-zivpn_1.4.9
 
-
 MIHOMO_URL:=https://github.com/MetaCubeX/Mihomo/releases/download/$(MIHOMO_VER)
 QLOAD_URL:=https://github.com/QcomWrt/Q-load/releases/download/$(QLOAD_VER)
 ZIVPN_URL:=https://github.com/zahidbd2/udp-zivpn/releases/download/$(ZIVPN_VER)
 
 
-ifeq ($(ARCH),x86_64)
+# OpenWrt uses GNU target names like x86_64, aarch64_generic, arm_cortex-a7, etc.
+ifneq ($(findstring x86_64,$(ARCH)),)
   M_ARCH:=amd64
   Q_ARCH:=amd64
   Z_ARCH:=amd64
-else ifeq ($(ARCH),aarch64)
+else ifneq ($(findstring aarch64,$(ARCH)),)
   M_ARCH:=arm64
   Q_ARCH:=arm64
   Z_ARCH:=arm64
-else ifeq ($(ARCH),arm)
+else ifneq ($(findstring arm,$(ARCH)),)
   M_ARCH:=armv7
   Q_ARCH:=armv7
   Z_ARCH:=arm
@@ -61,9 +61,9 @@ endif
 define Build/Prepare
 	$(call Build/Prepare/Default)
 
-	mkdir -p $(PKG_BUILD_DIR)/cores
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)/cores
 
-	curl -fL $(MIHOMO_URL)/mihomo-linux-$(M_ARCH)-$(MIHOMO_VER).gz \
+	curl -fL $(MIHOMO_URL)/mihomo-linux-$(M_ARCH)-compatible-$(MIHOMO_VER).gz \
 		-o $(PKG_BUILD_DIR)/cores/clash.gz
 	gunzip -f $(PKG_BUILD_DIR)/cores/clash.gz
 
@@ -85,17 +85,15 @@ endef
 
 
 define Package/luci-app-qtun/install
-
-
+	# UCI config
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./etc/config/qtun $(1)/etc/config/qtun
 
-
+	# Init service
 	$(INSTALL_DIR) $(1)/etc/init.d
-	$(INSTALL_BIN) ./etc/init.d/qtun_autoboot \
-		$(1)/etc/init.d/qtun_autoboot
+	$(INSTALL_BIN) ./etc/init.d/qtun_autoboot $(1)/etc/init.d/qtun_autoboot
 
-
+	# Main dirs
 	$(INSTALL_DIR) $(1)/etc/qtun
 	$(INSTALL_DIR) $(1)/etc/qtun/action
 	$(INSTALL_DIR) $(1)/etc/qtun/config
@@ -104,26 +102,21 @@ define Package/luci-app-qtun/install
 	$(INSTALL_DIR) $(1)/etc/qtun/core
 	$(INSTALL_DIR) $(1)/etc/qtun/run
 
+	# Scripts
+	$(INSTALL_BIN) ./etc/qtun/action/*.sh $(1)/etc/qtun/action/
 
-	$(INSTALL_BIN) ./etc/qtun/action/*.sh \
-		$(1)/etc/qtun/action/
-
+	# Config templates
 	$(INSTALL_CONF) ./etc/qtun/config/clash/zivpn.yaml \
 		$(1)/etc/qtun/config/clash/zivpn.yaml
 
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/cores/clash \
-		$(1)/etc/qtun/core/clash
+	# Core binaries
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/cores/clash $(1)/etc/qtun/core/clash
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/cores/q-load $(1)/etc/qtun/core/q-load
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/cores/zivpn $(1)/etc/qtun/core/zivpn
 
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/cores/q-load \
-		$(1)/etc/qtun/core/q-load
-
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/cores/zivpn \
-		$(1)/etc/qtun/core/zivpn
-
+	# LuCI files
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci
-	$(CP) ./usr/lib/lua/luci/* \
-		$(1)/usr/lib/lua/luci/
-
+	$(CP) ./usr/lib/lua/luci/* $(1)/usr/lib/lua/luci/
 endef
 
 
