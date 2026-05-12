@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v1.0.1)"
+        description: "Release tag (e.g. v1.0.1 or v1.0.1-r2)"
         required: true
         default: "v1.0.1"
 
@@ -31,11 +31,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set Version from Tag
+      - name: Parse Tag
         run: |
-          VERSION="${{ github.event.inputs.tag }}"
-          VERSION="${VERSION#v}"
+          RAW="${{ github.event.inputs.tag }}"
+          RAW="${RAW#v}"
+
+          if echo "$RAW" | grep -q -- "-r"; then
+            VERSION="${RAW%-r*}"
+            RELEASE="${RAW##*-r}"
+            FINAL_VERSION="${VERSION}-${RELEASE}"
+          else
+            VERSION="$RAW"
+            RELEASE="1"
+            FINAL_VERSION="${VERSION}"
+          fi
+
           echo "QTUN_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "QTUN_RELEASE=$RELEASE" >> $GITHUB_ENV
+          echo "QTUN_FINAL_VERSION=$FINAL_VERSION" >> $GITHUB_ENV
 
       - name: Install Dependencies
         run: |
@@ -65,9 +78,11 @@ jobs:
             --exclude=.github
 
           sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${QTUN_VERSION}/" workdir/Makefile
+          sed -i "s/^PKG_RELEASE:=.*/PKG_RELEASE:=${QTUN_RELEASE}/" workdir/Makefile
 
           echo "==== Patched Makefile ===="
           grep "^PKG_VERSION" workdir/Makefile
+          grep "^PKG_RELEASE" workdir/Makefile
 
       - name: Build Package
         run: |
@@ -82,12 +97,9 @@ jobs:
         run: |
           mkdir -p release
 
-          find sdk/bin/packages/ -type f -name "luci-app-qtun*.ipk" -exec cp {} release/ \;
-
-          cd release
-          for f in *.ipk; do
-            BASENAME="${f%%_*}"
-            mv "$f" "${BASENAME}_${QTUN_VERSION}_${{ matrix.arch }}.ipk"
+          find sdk/bin/packages/ -type f -name "luci-app-qtun*.ipk" | while read f; do
+            NEW_NAME="luci-app-qtun_${QTUN_FINAL_VERSION}_${{ matrix.arch }}.ipk"
+            cp "$f" "release/$NEW_NAME"
           done
 
       - name: Upload Artifact
@@ -127,15 +139,28 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update PKG_VERSION
+      - name: Update PKG_VERSION & PKG_RELEASE
         run: |
-          VERSION="${{ github.event.inputs.tag }}"
-          VERSION="${VERSION#v}"
+          RAW="${{ github.event.inputs.tag }}"
+          RAW="${RAW#v}"
+
+          if echo "$RAW" | grep -q -- "-r"; then
+            VERSION="${RAW%-r*}"
+            RELEASE="${RAW##*-r}"
+          else
+            VERSION="$RAW"
+            RELEASE="1"
+          fi
 
           sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${VERSION}/" Makefile
+          sed -i "s/^PKG_RELEASE:=.*/PKG_RELEASE:=${RELEASE}/" Makefile
 
           echo "==== Updated Makefile ===="
           grep "^PKG_VERSION" Makefile
+          grep "^PKG_RELEASE" Makefile
+
+          echo "QTUN_VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "QTUN_RELEASE=${RELEASE}" >> $GITHUB_ENV
 
       - name: Commit & Push
         run: |
@@ -147,6 +172,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No version change detected."
           else
-            git commit -m "Bump PKG_VERSION to ${{ github.event.inputs.tag }}"
+            git commit -m "Bump QTUN to v${QTUN_VERSION}-r${QTUN_RELEASE}"
             git push
           fi
