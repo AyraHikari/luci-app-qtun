@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-qtun
 PKG_VERSION:=1.0.2
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 
 PKG_MAINTAINER:=Azy <azyanggara2707@gmail.com>
 PKG_LICENSE:=MIT
@@ -15,8 +15,8 @@ define Package/luci-app-qtun
   SUBMENU:=3. Applications
   TITLE:=LuCI interface for Q-Tunneling
   URL:=https://github.com/QcomWrt/luci-app-qtun
-  # Tambahkan luci-compat agar jalan di OpenWrt 21, 22, 23
-  DEPENDS:=+bash +curl +ca-bundle +ca-certificates +jq +luci-compat
+  # luci-compat keeps the legacy Lua controller/CBI UI working on newer LuCI.
+  DEPENDS:=+luci-base +luci-compat +bash +curl +ca-bundle +ca-certificates +jq
   # JANGAN gunakan PKGARCH:=all karena ada binary di dalamnya
 endef
 

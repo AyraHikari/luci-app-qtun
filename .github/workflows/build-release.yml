@@ -1,12 +1,12 @@
-name: Build & Release luci-app-qtun
+name: Build & Release luci-app-qtun APK
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v1.0.1 or v1.0.1-r2)"
+        description: "Release tag (e.g. v1.0.2 or v1.0.2-r4)"
         required: true
-        default: "v1.0.1"
+        default: "v1.0.2-r4"
 
 permissions:
   contents: write
@@ -21,15 +21,15 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            sdk_url: https://downloads.openwrt.org/releases/23.05.0/targets/x86/64/openwrt-sdk-23.05.0-x86-64_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+            target: x86/64
           - arch: aarch64_generic
-            sdk_url: https://downloads.openwrt.org/releases/23.05.0/targets/armsr/armv8/openwrt-sdk-23.05.0-armsr-armv8_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+            target: armsr/armv8
           - arch: aarch64_cortex-a53
-            sdk_url: https://downloads.openwrt.org/releases/23.05.0/targets/sunxi/cortexa53/openwrt-sdk-23.05.0-sunxi-cortexa53_gcc-12.3.0_musl.Linux-x86_64.tar.xz
+            target: sunxi/cortexa53
           - arch: arm_cortex-a7_neon-vfpv4
-            sdk_url: https://downloads.openwrt.org/releases/23.05.0/targets/sunxi/cortexa7/openwrt-sdk-23.05.0-sunxi-cortexa7_gcc-12.3.0_musl_eabi.Linux-x86_64.tar.xz
+            target: sunxi/cortexa7
           - arch: arm_cortex-a9
-            sdk_url: https://downloads.openwrt.org/releases/23.05.0/targets/mvebu/cortexa9/openwrt-sdk-23.05.0-mvebu-cortexa9_gcc-12.3.0_musl_eabi.Linux-x86_64.tar.xz
+            target: mvebu/cortexa9
 
     steps:
       - name: Checkout
@@ -60,13 +60,22 @@ jobs:
           sudo apt install -y \
             build-essential clang flex bison gawk gettext git \
             libncurses5-dev libssl-dev python3-setuptools \
-            rsync unzip zlib1g-dev file wget curl
+            rsync unzip zlib1g-dev file wget curl zstd
 
       - name: Setup SDK
         run: |
-          wget -O sdk.tar.xz "${{ matrix.sdk_url }}"
+          SDK_INDEX="https://downloads.openwrt.org/snapshots/targets/${{ matrix.target }}/"
+          SDK_FILE="$(curl -fsSL "$SDK_INDEX" | grep -oE 'openwrt-sdk-[^"]+Linux-x86_64\.tar\.zst' | head -n1)"
+
+          if [ -z "$SDK_FILE" ]; then
+            echo "::error::Unable to find snapshot SDK at $SDK_INDEX"
+            exit 1
+          fi
+
+          echo "Using SDK: ${SDK_INDEX}${SDK_FILE}"
+          wget -O sdk.tar.zst "${SDK_INDEX}${SDK_FILE}"
           mkdir sdk
-          tar -xf sdk.tar.xz -C sdk --strip-components=1
+          tar -I zstd -xf sdk.tar.zst -C sdk --strip-components=1
 
           cd sdk
           ./scripts/feeds update -a
@@ -101,8 +110,16 @@ jobs:
         run: |
           mkdir -p release
 
-          find sdk/bin/packages/ -type f -name "luci-app-qtun*.ipk" | while read f; do
-            NEW_NAME="luci-app-qtun_${QTUN_FINAL_VERSION}_${{ matrix.arch }}.ipk"
+          mapfile -t APK_FILES < <(find sdk/bin -type f -name "luci-app-qtun*.apk")
+
+          if [ "${#APK_FILES[@]}" -eq 0 ]; then
+            echo "::error::No luci-app-qtun APK artifact was produced"
+            find sdk/bin -type f \( -name "luci-app-qtun*.apk" -o -name "luci-app-qtun*.ipk" \) -print
+            exit 1
+          fi
+
+          for f in "${APK_FILES[@]}"; do
+            NEW_NAME="luci-app-qtun_${QTUN_FINAL_VERSION}_${{ matrix.arch }}.apk"
             cp "$f" "release/$NEW_NAME"
           done
 
@@ -110,7 +127,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: qtun-${{ matrix.arch }}
-          path: release/*.ipk
+          path: release/*.apk
 
   release:
     name: Create GitHub Release
@@ -129,7 +146,7 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag }}
           name: Release ${{ github.event.inputs.tag }}
-          files: ./all-artifacts/*.ipk
+          files: ./all-artifacts/*.apk
           token: ${{ secrets.GITHUB_TOKEN }}
 
   bump-makefile:
